@@ -54,7 +54,6 @@ dkms.conf
 # debug information files
 *.dwo
 
-bin/
 logs/
 .fd-lab-*
 ~$*.docx
