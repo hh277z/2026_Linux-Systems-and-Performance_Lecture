@@ -1,0 +1,108 @@
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu0/stats
+entries: 154
+overrun: 0
+commit overrun: 0
+bytes: 4156
+oldest event ts:  2478.712843
+now ts:  2481.758091
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu1/stats
+entries: 240
+overrun: 0
+commit overrun: 0
+bytes: 5904
+oldest event ts:  2478.930910
+now ts:  2481.761992
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu10/stats
+entries: 130
+overrun: 0
+commit overrun: 0
+bytes: 3540
+oldest event ts:  2478.807654
+now ts:  2481.765615
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu11/stats
+entries: 52
+overrun: 0
+commit overrun: 0
+bytes: 1468
+oldest event ts:  2478.713497
+now ts:  2481.769076
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu2/stats
+entries: 658
+overrun: 0
+commit overrun: 0
+bytes: 15408
+oldest event ts:  2478.884017
+now ts:  2481.771979
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu3/stats
+entries: 76
+overrun: 0
+commit overrun: 0
+bytes: 2072
+oldest event ts:  2479.643747
+now ts:  2481.775511
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu4/stats
+entries: 174
+overrun: 0
+commit overrun: 0
+bytes: 4696
+oldest event ts:  2478.713482
+now ts:  2481.778538
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu5/stats
+entries: 104
+overrun: 0
+commit overrun: 0
+bytes: 2784
+oldest event ts:  2479.381851
+now ts:  2481.781018
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu6/stats
+entries: 186
+overrun: 0
+commit overrun: 0
+bytes: 4956
+oldest event ts:  2478.713507
+now ts:  2481.783532
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu7/stats
+entries: 64
+overrun: 0
+commit overrun: 0
+bytes: 1688
+oldest event ts:  2479.620327
+now ts:  2481.786057
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu8/stats
+entries: 176
+overrun: 0
+commit overrun: 0
+bytes: 4192
+oldest event ts:  2479.113262
+now ts:  2481.788532
+dropped events: 0
+read events: 0
+STATS /sys/kernel/tracing/instances/week2-lab-8555/per_cpu/cpu9/stats
+entries: 320
+overrun: 0
+commit overrun: 0
+bytes: 7416
+oldest event ts:  2479.112162
+now ts:  2481.793212
+dropped events: 0
+read events: 0
