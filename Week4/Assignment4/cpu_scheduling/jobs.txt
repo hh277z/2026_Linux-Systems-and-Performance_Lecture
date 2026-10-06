@@ -1,0 +1,15 @@
+# arrival_ms base_blocks weight name
+# base_blocks의 단위는 -b와 관계없이 256KB. short=4는 항상 1MB.
+# 긴 job은 마지막 짧은 job 도착(5500ms)까지 완료되지 않도록 길이를 조정한다.
+0 10000 100 long1
+0 10000 300 long2
+1000 4 100 short1
+1500 4 100 short2
+2000 4 100 short3
+2500 4 100 short4
+3000 4 100 short5
+3500 4 100 short6
+4000 4 100 short7
+4500 4 100 short8
+5000 4 100 short9
+5500 4 100 short10
