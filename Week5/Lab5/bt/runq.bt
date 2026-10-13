@@ -1,0 +1,36 @@
+// runq.bt: run queue latency. thread가 깨어나거나 preempt되어 runnable이 된 뒤 다시 CPU에 올라갈 때까지 기다린 시간 (실습 3).
+// usage: sudo bpftrace bt/runq.bt <seconds>          renderer-*, indexer-* thread만 본다
+// perf sched timehist는 같은 시간을 sch delay(깨어난 경우)와 wait time(preempt된 경우)으로 나눠 보여 준다.
+
+tracepoint:sched:sched_wakeup,
+tracepoint:sched:sched_wakeup_new
+/strncmp(args->comm, "renderer", 8) == 0 || strncmp(args->comm, "indexer", 7) == 0/
+{
+    @qtime[args->pid] = nsecs;              // KEY 깨어나 runnable이 된 시각
+}
+
+tracepoint:sched:sched_switch
+{
+    // preempt된 task는 여전히 runnable이다. kernel에 따라 prev_state가 0 또는 0x100(R+)으로 찍히므로 하위 8 bit만 본다.
+    if ((args->prev_state & 0xff) == 0 &&
+        (strncmp(args->prev_comm, "renderer", 8) == 0 || strncmp(args->prev_comm, "indexer", 7) == 0)) {
+        @qtime[args->prev_pid] = nsecs;     // KEY preempt된 경우도 대기 시작
+    }
+    $ns = @qtime[args->next_pid];
+    if ($ns) {
+        @runq_us[args->next_comm] = hist((nsecs - $ns) / 1000);     // KEY CPU에 오른 시각 - 대기 시작 (us)
+        @runq_max_us[args->next_comm] = max((nsecs - $ns) / 1000);
+        @runq_sum_ms[args->next_comm] = sum((nsecs - $ns) / 1000000);
+        delete(@qtime[args->next_pid]);
+    }
+}
+
+interval:s:$1
+{
+    exit();
+}
+
+END
+{
+    clear(@qtime);
+}

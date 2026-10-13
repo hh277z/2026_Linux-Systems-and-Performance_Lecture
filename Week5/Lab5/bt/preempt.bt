@@ -1,0 +1,24 @@
+// preempt.bt: renderer와 indexer가 서로를 몇 번 preempt했는지 센다 (실습 3).
+// usage: sudo bpftrace bt/preempt.bt <seconds>
+//   @wakeup[renderer-0]                    renderer가 깨어난 횟수 (frame 수와 같아야 한다)
+//   @preempt[indexer-0, renderer-0]        indexer가 runnable인 채로 CPU를 renderer에게 넘긴 횟수 (renderer가 indexer를 preempt)
+//   @preempt[renderer-0, indexer-0]        renderer가 frame 도중에 indexer에게 preempt된 횟수
+
+tracepoint:sched:sched_wakeup
+/strncmp(args->comm, "renderer", 8) == 0/
+{
+    @wakeup[args->comm] = count();
+}
+
+tracepoint:sched:sched_switch
+/(args->prev_state & 0xff) == 0 &&
+ (strncmp(args->prev_comm, "renderer", 8) == 0 || strncmp(args->prev_comm, "indexer", 7) == 0) &&
+ (strncmp(args->next_comm, "renderer", 8) == 0 || strncmp(args->next_comm, "indexer", 7) == 0)/
+{
+    @preempt[args->prev_comm, args->next_comm] = count();   // KEY prev는 아직 일이 남았는데(runnable) CPU를 내줬다
+}
+
+interval:s:$1
+{
+    exit();
+}

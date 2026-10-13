@@ -1,0 +1,55 @@
+// frametrace.bt: re-measures every frameloop frame from kernel events (Level 1).
+// usage (from the assignment folder): sudo bpftrace bt/frametrace.bt -c './bin/frameloop -g none -n 300' > logs/l1-none-bt.txt
+//
+// one line per frame:  F <id> <wall_us> <oncpu_us> <offcpu_runnable_us> <n_out> <sigxcpu> <sig_at_us> <status>
+//   wall_us            time from frame_begin to frame_end
+//   oncpu_us           time the frameloop thread actually spent on a CPU in that interval (summed from sched_switch)
+//   offcpu_runnable_us time it spent off the CPU while still runnable (throttling, under DEADLINE)
+//   n_out              number of times it left the CPU
+//   sigxcpu, sig_at_us number of SIGXCPU signals the kernel generated during the frame, and the time of the first one (from frame start)
+//   status             second argument of frame_end (0 OK, 1 DROP, 2 CUT)
+//
+// Note: depending on the kernel, sched_switch reports a preempted task with prev_state 0 or 0x100. Look at the low 8 bits only.
+
+BEGIN
+{
+    printf("F id wall_us oncpu_us offcpu_runnable_us n_out sigxcpu sig_at_us status\n");
+}
+
+uprobe:./bin/frameloop:frame_begin
+{
+    @tid = tid;
+    @id = arg0;
+    @fstart = nsecs;
+    @in = nsecs;                 // a frame starts on the CPU
+    @acc = 0; @off = 0; @nout = 0; @sig = 0; @sigat = 0;
+    @active = 1;
+}
+
+// TODO(L1-5) when the frameloop thread leaves the CPU (prev_pid == @tid, frame in progress):
+//   add the interval it just spent on the CPU to @acc and count @nout.
+//   if it left while still runnable, remember the time and add the off-CPU interval to @off when it comes back.
+
+// TODO(L1-5) when the frameloop thread gets the CPU again (next_pid == @tid): update @in and close the runnable interval.
+
+// TODO(L1-6) in tracepoint:signal:signal_generate, count in @sig every SIGXCPU (24) generated for the frameloop thread,
+//   and keep in @sigat the time of the first one in the frame (relative to @fstart).
+
+uprobe:./bin/frameloop:frame_end
+/@active && tid == @tid/
+{
+    @acc += nsecs - @in;
+    $wall = (nsecs - @fstart) / 1000;
+    printf("F %d %d %d %d %d %d %d %d\n", @id, $wall, @acc / 1000, @off / 1000, @nout, @sig,
+           @sigat / 1000, arg1);
+    @frames = count();
+    @oncpu_us = hist(@acc / 1000);
+    if (@off > 0) { @throttled_frames = count(); }
+    @active = 0;
+}
+
+END
+{
+    clear(@tid); clear(@id); clear(@fstart); clear(@in); clear(@acc); clear(@off);
+    clear(@nout); clear(@sig); clear(@sigat); clear(@active);
+}

@@ -1,0 +1,51 @@
+// reqtrace.bt: splits each svc request into segments and times them (Level 2).
+// usage (from the assignment folder): sudo bpftrace bt/reqtrace.bt <seconds>   no -c, because uprobes go into both svc and svcload
+//        normally tools/l2_run.sh starts svc, this script and svcload in that order
+//
+// segments (matched by request id, id >> 32 = client: 1 input, 2 logger)
+//   rx      client req_send   -> svc req_enqueue   through the socket until the receiver queues it   (implemented as an example)
+//   queue   svc req_enqueue   -> svc handle_begin  until the worker picks it up
+//   service svc handle_begin  -> svc handle_end    processing. Time the worker spent off the CPU while runnable (preempted) goes to @svc_wait
+//   reply   svc handle_end    -> client req_done
+// required output: @rx_us, @queue_us, @queue_max_us, @service_us, @svc_wait, @reply_us, @total_us, @total_max_us (per client)
+//            @preempted[client, comm of the task that preempted the worker], @prio_at_begin[client, kernel prio], @reported_prio[client, arg1]
+
+uprobe:./bin/svcload:req_send     { @t_send[arg0] = nsecs; }
+
+uprobe:./bin/svc:req_enqueue
+{
+    @t_enq[arg0] = nsecs;
+    $s = @t_send[arg0];
+    if ($s) { @rx_us[arg0 >> 32] = hist((nsecs - $s) / 1000); }
+}
+
+// TODO(L2-5) sched_switch: when the worker thread (@worker) gets the CPU, remember its kernel prio (next_prio) in @wprio,
+//            and add to @svc_wait[client] the time from leaving the CPU while runnable (preempted) in the middle of a request until it is back.
+//            When it leaves, count the task that took the CPU in @preempted[client, next_comm].
+
+// TODO(L2-5) handle_begin: @worker = tid, remember the current request id, record the queue segment,
+//            count @prio_at_begin[client, @wprio] and @reported_prio[client, arg1].
+
+// TODO(L2-5) handle_end: record the service segment and save the end time.
+
+uprobe:./bin/svcload:req_done
+{
+    $s = @t_send[arg0];
+    // TODO(L2-5) reply segment: record @reply_us from the time saved in handle_end, and add those maps to the deletes below
+    if ($s) {
+        @total_us[arg0 >> 32] = hist((nsecs - $s) / 1000);
+        @total_max_us[arg0 >> 32] = max((nsecs - $s) / 1000);
+        @n[arg0 >> 32] = count();
+    }
+    delete(@t_send[arg0]); delete(@t_enq[arg0]);
+}
+
+interval:s:$1
+{
+    exit();
+}
+
+END
+{
+    clear(@t_send); clear(@t_enq);
+}

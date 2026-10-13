@@ -1,0 +1,32 @@
+// piwatch.bt: priority inheritance를 kernel 기록으로 확인한다 (실습 2).
+//   sched_pi_setprio : kernel이 lock owner의 priority를 바꾼 순간 (boost와 복귀)
+//   futex op         : glibc mutex가 kernel에 들어간 방식
+// usage: sudo bpftrace bt/piwatch.bt -c './bin/pi_demo -p inherit'
+// prio는 kernel 내부 값이다. SCHED_FIFO rt_priority p -> 99 - p, 작을수록 높다 (pi-L 89, pi-M 79, pi-H 69).
+
+BEGIN
+{
+    @t0 = nsecs;
+    printf("futex op: 0 WAIT, 1 WAKE, 6 LOCK_PI, 7 UNLOCK_PI, 13 LOCK_PI2\n");
+    printf("%-8s %-8s %s\n", "ms", "tid", "prio change");
+}
+
+tracepoint:sched:sched_pi_setprio
+/args->oldprio != args->newprio/
+{
+    // KEY owner(pi-L)를 기다리는 thread(pi-H)의 priority로 올리거나(boost) unlock 후 되돌린다(restore)
+    printf("%-8llu %-8d %d -> %d %s\n", (nsecs - @t0) / 1000000, args->pid, args->oldprio, args->newprio,
+           args->newprio < args->oldprio ? "boost" : "restore");
+    @pi_events = count();
+}
+
+tracepoint:syscalls:sys_enter_futex
+/strncmp(comm, "pi-", 3) == 0/
+{
+    @futex_op[comm, args->op & 127] = count();   // KEY 어떤 futex 연산으로 kernel에 들어갔나 (128 = PRIVATE flag 제거)
+}
+
+END
+{
+    delete(@t0);
+}

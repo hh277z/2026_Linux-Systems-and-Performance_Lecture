@@ -1,0 +1,47 @@
+// whydelay.bt: splits the time a target thread was runnable but off the CPU by the tasks that used that CPU meanwhile (Level 3).
+// usage: sudo bpftrace bt/whydelay.bt <PID> <thread comm> <seconds>
+//   e.g. sudo bpftrace bt/whydelay.bt 4321 ui-render 8
+//
+// required output
+//   @oncpu_us[comm]        total time the target ran on a CPU (its own work)
+//   @wait_us[comm]         total time the target waited while runnable (after a wakeup, and after being preempted or throttled)
+//   @wait_hist_us, @wait_max_us   distribution and maximum of a single wait
+//   @blame_us[comm, prio]  tasks (with kernel prio) that ran on that CPU while the target waited, and the overlapping time
+//                          prio: -1 deadline, 0~98 rt (99 - rt_priority), 100~139 fair (120 = nice 0)
+//   @victim_prio[prio]     kernel prio of the target when it gets the CPU (the target's own class)
+//
+// design (maps you need)
+//   @runstart[cpu]   time the current task started running on that CPU
+//   @nwait[cpu]      number of target threads waiting on that CPU,  @wsince[cpu] time it went from 0 to 1
+//   @wstart[tid], @wcpu[tid]   time and CPU at which a target thread started waiting
+//   @tgt[tid], @running[tid]   marks a target thread, and whether it is on a CPU now
+// hints
+//   - the sched_switch tracepoint runs in the context of the prev task, so the builtin pid is prev's process id.
+//   - comparing comm: strncmp(args->prev_comm, str($2), 16) == 0
+//   - sched_wakeup can fire for a task that is already running. Do not start a wait in that case.
+//   - look at the low 8 bits of prev_state only ((args->prev_state & 0xff) == 0 means still runnable)
+
+BEGIN
+{
+    printf("whydelay: PID %d, thread %s, %d s\n", $1, str($2), $3);
+}
+
+tracepoint:sched:sched_switch
+{
+    // TODO(L3-1) account for the interval prev just ran: @oncpu_us if prev is a target, otherwise @blame_us if a target waits on this CPU
+    // TODO(L3-1) if prev is a target and leaves while runnable, start a wait
+    // TODO(L3-1) if next is a waiting target, end the wait: @wait_us, @wait_hist_us, @wait_max_us, @victim_prio
+    @runstart[cpu] = nsecs;
+}
+
+// TODO(L3-1) tracepoint:sched:sched_wakeup: when a target thread wakes up, start a wait on target_cpu
+
+interval:s:$3
+{
+    exit();
+}
+
+END
+{
+    clear(@runstart);
+}
