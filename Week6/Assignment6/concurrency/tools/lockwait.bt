@@ -1,0 +1,83 @@
+#!/usr/bin/env bpftrace
+/*
+ * lockwait.bt - pthread_mutex_lock call latency, lock owners, and what owners do.
+ * usage: sudo bpftrace tools/lockwait.bt <PID> <seconds>
+ *
+ *   @lock_call_us[thread]        time from entering pthread_mutex_lock to its return.
+ *                                This is the latency of the call, not pure waiting time.
+ *   @slow_calls[thread, owner, caller]
+ *                                calls of 1 ms or more: the thread that owned the mutex
+ *                                when the call began ("" = owner unknown), and the
+ *                                function that called pthread_mutex_lock
+ *   @syscalls_under_lock[thread, syscall]
+ *                                write / fsync / sleep calls made while that thread
+ *                                held at least one mutex
+ *
+ * Limits: owners are tracked through the public pthread_mutex_lock/unlock symbols.
+ * pthread_cond_wait releases and re-takes its mutex inside glibc, so owners of
+ * mutexes used with condition variables can be wrong or missing.
+ */
+
+BEGIN
+{
+    printf("lockwait: PID %d for %d s\n", $1, $2);
+}
+
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_lock
+/pid == $1/
+{
+    @t[tid] = nsecs;
+    @m[tid] = arg0;
+    @owner_at_entry[tid] = @owner[arg0];            // who held it when we asked
+    @caller[tid] = *(uint64 *)uptr(reg("sp"));      // return address = the call site
+}
+
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_lock
+/pid == $1 && @t[tid]/
+{
+    $us = (nsecs - @t[tid]) / 1000;
+    @lock_call_us[comm] = hist($us);
+    if ($us >= 1000) {
+        @slow_calls[comm, @owner_at_entry[tid], usym(@caller[tid])] = count();
+        @slow_us_sum[comm, @owner_at_entry[tid]] = sum($us);
+    }
+    @owner[@m[tid]] = comm;                         // this thread owns the mutex now
+    @nheld[tid] = @nheld[tid] + 1;
+    delete(@t[tid]);
+    delete(@m[tid]);
+    delete(@owner_at_entry[tid]);
+    delete(@caller[tid]);
+}
+
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_unlock
+/pid == $1/
+{
+    delete(@owner[arg0]);
+    if (@nheld[tid] > 0) {
+        @nheld[tid] = @nheld[tid] - 1;
+    }
+}
+
+tracepoint:syscalls:sys_enter_write,
+tracepoint:syscalls:sys_enter_fsync,
+tracepoint:syscalls:sys_enter_nanosleep,
+tracepoint:syscalls:sys_enter_clock_nanosleep
+/pid == $1 && @nheld[tid] > 0/
+{
+    @syscalls_under_lock[comm, probe] = count();    // what an owner does while holding a mutex
+}
+
+interval:s:$2
+{
+    exit();
+}
+
+END
+{
+    clear(@t);
+    clear(@m);
+    clear(@owner_at_entry);
+    clear(@caller);
+    clear(@owner);
+    clear(@nheld);
+}

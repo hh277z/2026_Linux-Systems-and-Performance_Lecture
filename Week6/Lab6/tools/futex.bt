@@ -1,0 +1,56 @@
+#!/usr/bin/env bpftrace
+/*
+ * futex.bt - 한 프로그램의 futex system call을 thread, 호출한 pthread 함수, op별로 센다 (실습 3)
+ * usage: sudo bpftrace tools/futex.bt -c './bin/cvbug -m fixed -n 200 -s 2'
+ *
+ * futex 호출이 있다고 mutex 경쟁인 것은 아니다. condition variable의 대기와 깨우기,
+ * pthread_join, mutex의 넘겨주기가 모두 futex를 쓴다. op와 호출 함수를 함께 본다.
+ *   op: 0 WAIT  1 WAKE  9 WAIT_BITSET  10 WAKE_BITSET  (128 = PRIVATE flag, 지우고 센다)
+ */
+
+BEGIN
+{
+    printf("futex.bt: -c로 실행한 프로그램이 끝나면 함께 끝난다\n");
+}
+
+// 지금 어느 pthread 함수 안에 있는지 thread마다 기억해 둔다
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_lock      /pid == cpid/ { @in[tid] = "mutex_lock"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_unlock    /pid == cpid/ { @in[tid] = "mutex_unlock"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_wait       /pid == cpid/ { @in[tid] = "cond_wait"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_timedwait  /pid == cpid/ { @in[tid] = "cond_timedwait"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_signal     /pid == cpid/ { @in[tid] = "cond_signal"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_broadcast  /pid == cpid/ { @in[tid] = "cond_broadcast"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_join            /pid == cpid/ { @in[tid] = "join"; }
+
+// 함수에서 돌아오면 지운다
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_lock,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_unlock,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_wait,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_timedwait,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_signal,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_broadcast,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_join
+/pid == cpid/
+{
+    delete(@in[tid]);
+}
+
+tracepoint:syscalls:sys_enter_futex
+/pid == cpid/
+{
+    @futex[comm, @in[tid], args->op & 127] = count();      // KEY thread, 호출한 pthread 함수, op별 횟수
+    @t[tid] = nsecs;
+}
+
+tracepoint:syscalls:sys_exit_futex
+/pid == cpid && @t[tid]/
+{
+    @futex_time_us[@in[tid]] = sum((nsecs - @t[tid]) / 1000);   // futex 안에서 보낸 시간
+    delete(@t[tid]);
+}
+
+END
+{
+    clear(@in);
+    clear(@t);
+}

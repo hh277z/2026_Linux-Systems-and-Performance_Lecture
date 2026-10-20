@@ -1,0 +1,56 @@
+#!/usr/bin/env bpftrace
+/*
+ * futex.bt - futex system calls of one program, by thread, by the pthread
+ * function they came from, and by futex op.
+ * usage: sudo bpftrace tools/futex.bt -c './bin/bqtest ...'
+ *
+ * A futex call is not proof of mutex contention: condition variable waits and
+ * wake-ups, pthread_join, and mutex hand-offs all use futex. Read the op and
+ * the calling function together.
+ *   op: 0 WAIT  1 WAKE  9 WAIT_BITSET  10 WAKE_BITSET  (128 = PRIVATE flag, removed)
+ */
+
+BEGIN
+{
+    printf("futex.bt: tracing the -c command, Ctrl-C not needed\n");
+}
+
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_lock      /pid == cpid/ { @in[tid] = "mutex_lock"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_unlock    /pid == cpid/ { @in[tid] = "mutex_unlock"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_wait       /pid == cpid/ { @in[tid] = "cond_wait"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_timedwait  /pid == cpid/ { @in[tid] = "cond_timedwait"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_signal     /pid == cpid/ { @in[tid] = "cond_signal"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_broadcast  /pid == cpid/ { @in[tid] = "cond_broadcast"; }
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_join            /pid == cpid/ { @in[tid] = "join"; }
+
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_lock,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_mutex_unlock,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_wait,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_timedwait,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_signal,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_broadcast,
+uretprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_join
+/pid == cpid/
+{
+    delete(@in[tid]);
+}
+
+tracepoint:syscalls:sys_enter_futex
+/pid == cpid/
+{
+    @futex[comm, @in[tid], args->op & 127] = count();      // KEY thread, calling function, op
+    @t[tid] = nsecs;
+}
+
+tracepoint:syscalls:sys_exit_futex
+/pid == cpid && @t[tid]/
+{
+    @futex_time_us[@in[tid]] = sum((nsecs - @t[tid]) / 1000);
+    delete(@t[tid]);
+}
+
+END
+{
+    clear(@in);
+    clear(@t);
+}
