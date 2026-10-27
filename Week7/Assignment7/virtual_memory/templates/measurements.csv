@@ -1,0 +1,6 @@
+run_id,checkpoint,accounting_mode,live_kB,delta_live_kB,heap_Size_kB,heap_Rss_kB,anonymous_Size_kB,snapshot_id,vasdump_file,interpretation
+run1,baseline,,,,,,,,,
+run1,A,,,,,,,,,
+run1,B,,,,,,,,,
+run1,C,,,,,,,,,
+run1,D,,,,,,,,,
