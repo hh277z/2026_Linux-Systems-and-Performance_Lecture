@@ -57,3 +57,4 @@ dkms.conf
 logs/
 .fd-lab-*
 ~$*.docx
+.DS_Store
