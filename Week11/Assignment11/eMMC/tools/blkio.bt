@@ -1,0 +1,77 @@
+#!/usr/bin/env bpftrace
+/*
+ * blkio.bt - /dev/nbd0로 내려간 요청을 종류(rwbs)별로 세고, driver에 들어가서 끝날 때까지의 시간을 본다.
+ * usage: sudo bpftrace tools/blkio.bt -c '<command>'      (명령이 끝나면 출력한다)
+ *
+ * rwbs 읽는 법 (kernel의 blk_fill_rwbs)
+ *   R read   W write   S sync   M metadata   A readahead
+ *   W 뒤의 F : FUA write. 이 data는 NAND에 닿은 뒤에 완료된다 (REQ_FUA)
+ *   FF       : FLUSH 요청. 장치의 volatile cache를 비운다 (REQ_PREFLUSH가 이 요청으로 바뀌어 내려온다)
+ * nbd0의 장치 번호는 43:0이고 kernel 안에서는 (43 << 20) | 0 이다.
+ * rwbs 배열의 끝에는 쓰레기 값이 남을 수 있어서, 알려진 종류와 strncmp로 비교해 같은 길이의 이름으로 센다.
+ */
+tracepoint:block:block_rq_issue /args.dev == (uint32)(43 << 20)/
+{
+    @start[args.sector, args.nr_sector] = nsecs;
+    if (strncmp(args.rwbs, "FF", 8) == 0) {
+        @requests["FF  "] = count();
+    } else if (strncmp(args.rwbs, "R", 8) == 0) {
+        @requests["R   "] = count();
+        @bytes["R   "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "RA", 8) == 0) {
+        @requests["RA  "] = count();
+        @bytes["RA  "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "RS", 8) == 0) {
+        @requests["RS  "] = count();
+        @bytes["RS  "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "RM", 8) == 0) {
+        @requests["RM  "] = count();
+        @bytes["RM  "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "RSM", 8) == 0) {
+        @requests["RSM "] = count();
+        @bytes["RSM "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "W", 8) == 0) {
+        @requests["W   "] = count();
+        @bytes["W   "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "WS", 8) == 0) {
+        @requests["WS  "] = count();
+        @bytes["WS  "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "WM", 8) == 0) {
+        @requests["WM  "] = count();
+        @bytes["WM  "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "WSM", 8) == 0) {
+        @requests["WSM "] = count();
+        @bytes["WSM "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "WFS", 8) == 0) {
+        @requests["WFS "] = count();
+        @bytes["WFS "] = sum(args.bytes);
+    } else if (strncmp(args.rwbs, "WFSM", 8) == 0) {
+        @requests["WFSM"] = count();
+        @bytes["WFSM"] = sum(args.bytes);
+    } else {
+        @requests["etc "] = count();
+        @bytes["etc "] = sum(args.bytes);
+    }
+}
+
+tracepoint:block:block_rq_complete /args.dev == (uint32)(43 << 20) && @start[args.sector, args.nr_sector]/
+{
+    $us = (nsecs - @start[args.sector, args.nr_sector]) / 1000;
+    delete(@start[args.sector, args.nr_sector]);
+    if (strncmp(args.rwbs, "FF", 8) == 0) {
+        @usec["FF  "] = hist($us);
+    } else if (strncmp(args.rwbs, "R", 1) == 0) {
+        @usec["R*  "] = hist($us);
+    } else if (strncmp(args.rwbs, "WF", 2) == 0) {
+        @usec["WF* "] = hist($us);
+    } else {
+        @usec["W*  "] = hist($us);
+    }
+}
+
+END
+{
+    clear(@start);
+    printf("\n@requests: 종류별 요청 수,  @bytes: 종류별 byte\n");
+    printf("@usec: driver에 들어가서 끝날 때까지(us). R* read, W* FUA가 아닌 write, WF* FUA write, FF flush\n");
+}
